@@ -19,6 +19,7 @@ from server_side.app import Server
 from threading import Thread
 
 from models.transaction import Transaction
+from models.blockchain import Blockchain
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class BlockchainCommunity(Community, PeerObserver):
         self.known_peers = set()
         self.node_id = None
         self.transactions = []
+        self.blockchain = Blockchain(max_block_size=10)
 
     def on_peer_added(self, peer: Peer) -> None:
         self.known_peers.add(peer)
@@ -43,7 +45,6 @@ class BlockchainCommunity(Community, PeerObserver):
         logger.info(f"[{self.node_id}]Peer removed: {peer.mid.hex()[:6]}")
 
     def started(self) -> None:
-        self.node_id = self.my_peer.mid.hex()[:6]
         self.network.add_peer_observer(self)
 
         self.register_task("send_dummy_payloads",self.send_dummy_payloads, interval=5.0, delay=5.0)
@@ -63,11 +64,12 @@ class BlockchainCommunity(Community, PeerObserver):
         self.cancel_pending_task("send_dummy_payloads")
         logger.info(f"[{self.node_id}] Dummy transaction task cancelled")
 
-    
-
     def broadcast(self, payload: Transaction) -> None:
         for peer in self.get_peers():
             self.ez_send(peer, payload)
+
+    def is_validator(self) -> bool:
+        return self.node_id == 0
     
     def create_and_broadcast_transaction(self, sender_mid: bytes, receiver_mid: bytes, cert_hash: bytes,
                                     timestamp: float, signature: bytes, public_key: bytes) -> None:
@@ -80,14 +82,14 @@ class BlockchainCommunity(Community, PeerObserver):
             public_key=public_key
         )
         self.broadcast(transaction)
+        logger.info(f"[{self.node_id}] Transaction created and broadcasted")
+        
 
     @lazy_wrapper(Transaction)
     def on_transaction_received(self, peer: Peer, payload: Transaction) -> None:
         if payload.cert_hash == b"dummy_cert_hash":
             logger.info(f"[{self.node_id}] Dummy transaction received, ignoring")
             return
-
-        logger.info(f"[{self.node_id}] Transaction received")
         
         message_id = payload.sender_mid.hex() + payload.receiver_mid.hex() + payload.cert_hash.hex()
         if message_id in self.seen_messages_hash:
@@ -95,18 +97,28 @@ class BlockchainCommunity(Community, PeerObserver):
 
         self.seen_messages_hash.add(message_id)
 
+        # Double save the transaction may be a problem
         if payload not in self.transactions:
             self.transactions.append(payload)
-            logger.info(f"[{self.node_id}] Transaction added to local storage")
-            self.broadcast(payload)
-        else:
-            logger.info(f"[{self.node_id}] Transaction already exists in local storage")
+
+        self.blockchain.add_transaction(payload)
+
+        logger.info(f"[{self.node_id}] Transaction received current transactions: {len(self.blockchain.current_transactions)}")
+
+        self.broadcast(payload)
+        logger.info(f"[{self.node_id}] Transaction broadcasted")
+
+        if self.blockchain.is_block_full() and self.is_validator():
+            last_block = self.blockchain.get_last_block()
+            new_block = self.blockchain.create_block(
+                transactions=self.blockchain.current_transactions,
+                previous_hash=last_block.hash if last_block else None
+            )
+            logger.info(f"[{self.node_id}] New block created: {new_block.index}")
+            self.blockchain.current_transactions = []
 
     def get_transactions(self):
         return self.transactions
-
-
-
 
 def start_node(node_id, server_port):
     async def boot():
@@ -151,7 +163,7 @@ def start_node(node_id, server_port):
             while True:
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
-            print("Shutting down node...")
+            logger.info(f"Node {node_id} cancelled")
         finally:
             await ipv8.stop()
             logger.info(f"Node {node_id} stopped")

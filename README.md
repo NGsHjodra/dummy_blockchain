@@ -18,3 +18,7 @@ python send_transaction.py
 ```
 python view_transaction.py
 ```
+# 2.4. Run view_block.py
+```
+python view_block.py
+```
