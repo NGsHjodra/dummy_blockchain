@@ -34,6 +34,20 @@ proposer → collects votes
 user     → receives certificate (check view_transaction.py)
 ```
 
+---
+
+## Node Architecture Overview
+
+This project implements a Proof-of-Authority (PoA) blockchain using the [IPv8 framework](https://github.com/Tribler/py-ipv8). It features:
+
+### Features
+- Transaction Verification (with signature validation)
+- Block Proposal (by designated proposer)
+- Vote Collection and Threshold Consensus
+- Block Commitment when a vote threshold is reached
+- Genesis Block Bootstrapping
+- Dummy Payload Broadcast for Debugging
+- HTTP Server exposing RESTful API endpoints
 
 # How to run the code
 
