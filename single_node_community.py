@@ -94,7 +94,12 @@ class BlockchainCommunity(Community, PeerObserver):
         self.cancel_pending_task("send_dummy_payloads")
         logger.info(f"[{self.node_id}] Dummy transaction task cancelled")
 
-    async def generate_and_broadcast_genesis_block(self):
+    def trigger_genesis_if_proposer(self):
+        if self.is_proposer():
+            self.register_task("generate_and_broadcast_genesis_block", self.generate_and_broadcast_genesis_block, interval=5.0, delay=7.0)
+
+
+    def generate_and_broadcast_genesis_block(self):
         genesis_block = Block(
             index=0,
             previous_hash='None',
@@ -107,6 +112,9 @@ class BlockchainCommunity(Community, PeerObserver):
         genesis_block_payload = self.block_to_payload(genesis_block)
         self.broadcast(genesis_block_payload)
         logger.info(f"[{self.node_id}] Genesis block payload broadcasted")
+
+        self.cancel_pending_task("generate_and_broadcast_genesis_block")
+        logger.info(f"[{self.node_id}] Genesis block task cancelled")
 
 
     def broadcast(self, payload: Transaction) -> None:
@@ -273,16 +281,16 @@ class BlockchainCommunity(Community, PeerObserver):
             self.blockchain.add_block(block)
             logger.info(f"[{self.node_id}] Block added to blockchain: {block.index}")
 
-        block_payload = BlockPayload(
-            index=block.index,
-            previous_hash=block.previous_hash.encode('utf-8') if isinstance(block.previous_hash, str) else block.previous_hash,
-            transaction_hashes=[tx.hash for tx in block.transactions],
-            timestamp=block.timestamp,
-            block_hash=bytes.fromhex(block.hash)  # Convert hex string to bytes
-        )
+        # block_payload = BlockPayload(
+        #     index=block.index,
+        #     previous_hash=block.previous_hash.encode('utf-8') if isinstance(block.previous_hash, str) else block.previous_hash,
+        #     transaction_hashes=[tx.hash for tx in block.transactions],
+        #     timestamp=block.timestamp,
+        #     block_hash=bytes.fromhex(block.hash)  # Convert hex string to bytes
+        # )
 
-        self.broadcast(block_payload)
-        logger.info(f"[{self.node_id}] Block payload broadcasted")
+        # self.broadcast(block_payload)
+        # logger.info(f"[{self.node_id}] Block payload broadcasted")
 
 
 def start_node(node_id, server_port):
@@ -318,6 +326,8 @@ def start_node(node_id, server_port):
             community = ipv8.get_overlay(BlockchainCommunity)
             community.node_id = node_id
             community.server = Server(community, port=server_port)
+
+            community.trigger_genesis_if_proposer()
             
             flask_thread = Thread(
                 target=community.server.start,
