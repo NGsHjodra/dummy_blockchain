@@ -20,6 +20,7 @@ from threading import Thread
 from binascii import unhexlify
 import hashlib
 import json
+from time import time
 
 from models.transaction import Transaction
 from models.blockchain import Blockchain
@@ -48,6 +49,9 @@ class BlockchainCommunity(Community, PeerObserver):
         self.proposing_block = None
         self.blockchain = Blockchain(max_block_size=10)
         self.crypto = ECCrypto()
+        self.private_key = self.crypto.generate_key("medium")
+        self.public_key_bin = self.private_key.pub().key_to_bin()
+        self.public_key = self.crypto.key_from_public_bin(self.public_key_bin)
 
     def on_peer_added(self, peer: Peer) -> None:
         self.known_peers.add(peer)
@@ -78,6 +82,9 @@ class BlockchainCommunity(Community, PeerObserver):
             block_hash=b"dummy_block_hash",
             voter_mid=self.my_peer.mid,
             vote_decision=b"dummy_vote_decision",
+            signature=b"dummy_signature",
+            public_key=b"dummy_public_key",
+            timestamp=0.0
         )
         self.broadcast(dummy_vote)
         logger.info(f"[{self.node_id}] Dummy vote sent")
@@ -106,6 +113,15 @@ class BlockchainCommunity(Community, PeerObserver):
             key,
             transaction.to_signable_bytes(),
             transaction.signature
+        )
+
+    def verify_vote(self, vote: Vote) -> bool:
+        key = self.crypto.key_from_public_bin(vote.public_key)
+
+        return self.crypto.is_valid_signature(
+            key,
+            vote.to_signable_bytes(),
+            vote.signature
         )
 
     def generate_and_broadcast_genesis_block(self):
@@ -216,7 +232,15 @@ class BlockchainCommunity(Community, PeerObserver):
                 block_hash=unhexlify(new_block.hash),
                 voter_mid=self.my_peer.mid,
                 vote_decision=b"accept",  # or b"reject"
+                signature=b"",  # Placeholder for actual signature
+                public_key=self.public_key_bin,
+                timestamp=time()
             )
+
+            signable_message = vote.to_signable_bytes()
+            signature = self.crypto.create_signature(self.private_key, signable_message)
+
+            vote.signature = signature
 
             self.proposing_block = new_block
             logger.info(f"[{self.node_id}] Proposing block: {new_block.index}")
@@ -232,6 +256,11 @@ class BlockchainCommunity(Community, PeerObserver):
         if payload.block_hash == b"dummy_block_hash":
             logger.info(f"[{self.node_id}] Dummy vote received, ignoring")
             return
+
+        if not self.verify_vote(payload):
+            logger.info(f"[{self.node_id}] Vote verification failed, ignoring")
+            return
+        logger.info(f"[{self.node_id}] Vote verified")
 
         message_id = payload.voter_mid.hex() + payload.block_hash.hex()
         if message_id in self.seen_messages_hash:
@@ -278,7 +307,15 @@ class BlockchainCommunity(Community, PeerObserver):
             block_hash=payload.block_hash,
             voter_mid=self.my_peer.mid,
             vote_decision=payload.vote_decision,
+            signature=b"",
+            public_key=self.public_key_bin,
+            timestamp=time()
         )
+
+        signable_message = vote.to_signable_bytes()
+        signature = self.crypto.create_signature(self.private_key, signable_message)
+
+        vote.signature = signature
 
         self.broadcast(vote)
         logger.info(f"[{self.node_id}] Vote broadcasted")

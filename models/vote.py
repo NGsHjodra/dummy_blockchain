@@ -8,7 +8,9 @@ class Vote(DataClassPayload[2]):
     block_hash: bytes
     voter_mid: bytes
     vote_decision: bytes  # e.g., b"accept" or b"reject"
-    # timestamp: float
+    signature: bytes
+    public_key: bytes
+    timestamp: float
     # public_key: bytes
 
     @classmethod
@@ -17,6 +19,17 @@ class Vote(DataClassPayload[2]):
             (bytes, "block_hash"),
             (bytes, "voter_mid"),
             (bytes, "vote_decision"),
-            # (float, "timestamp"),
+            (bytes, "signature"),
+            (bytes, "public_key")
+            (float, "timestamp"),
             # (bytes, "public_key")
+        ])
+
+    def to_signable_bytes(self) -> bytes:
+        """Create the message used for signing and verifying."""
+        return b"|".join([
+            self.block_hash,
+            self.voter_mid,
+            self.vote_decision,
+            str(self.timestamp).encode('utf-8')
         ])
