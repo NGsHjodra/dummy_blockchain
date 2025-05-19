@@ -61,3 +61,34 @@ python view_chain.py
 ```
 
 ## Optionally, you can change the port number in view_block.py and view_transaction.py from 8080 to 8084 to check the block and transaction for the other nodes.
+
+
+---
+
+## 🔍 What Each File Does
+
+### `main.py`  
+Starts a blockchain node:
+- Loads or generates cryptographic keys
+- Initializes peer-to-peer communication using IPv8
+- Starts the API server
+- Handles transaction reception, block proposal, voting, and block commitment
+
+### `send_transaction.py`  
+Sends a transaction to the network:
+- Simulates a university issuing a certificate
+- Generates a new key pair for each transaction
+- Signs the transaction with the private key
+- Sends it to the node via `/api/send_transaction`
+
+### `view_transaction.py`  
+Fetches and displays pending transactions:
+- Queries the `/api/transactions` endpoint
+- Displays current transactions stored in the mempool
+- Useful for checking if your transaction was received
+
+### `view_chain.py`  
+Displays the entire blockchain:
+- Calls the `/api/blocks` endpoint
+- Prints all committed blocks in formatted JSON
+- Useful for auditing and debugging the block history
