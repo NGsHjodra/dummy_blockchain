@@ -31,3 +31,12 @@ class Transaction(DataClassPayload[1]):
             'signature': self.signature.hex(),
             'public_key': self.public_key.hex(),
         }
+
+    def to_signable_bytes(self) -> bytes:
+        """Create the message used for signing and verifying."""
+        return b"|".join([
+            self.sender_mid,
+            self.receiver_mid,
+            self.cert_hash,
+            str(self.timestamp).encode('utf-8')
+        ])

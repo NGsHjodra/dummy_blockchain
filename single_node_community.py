@@ -31,11 +31,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class BlockchainCommunity(Community, PeerObserver):
-    community_id = b"myblockchain-test-02"
+    community_id = b"myblockchain-test-01"
 
     def __init__(self, settings: CommunitySettings) -> None:
         super().__init__(settings)
-        self.crypto = ECCrypto()
+        self.crypto = default_eccrypto
 
         self.add_message_handler(Transaction, self.on_transaction_received)
         self.add_message_handler(Vote, self.on_vote_received)
@@ -47,6 +47,7 @@ class BlockchainCommunity(Community, PeerObserver):
         self.votes = []
         self.proposing_block = None
         self.blockchain = Blockchain(max_block_size=10)
+        self.crypto = ECCrypto()
 
     def on_peer_added(self, peer: Peer) -> None:
         self.known_peers.add(peer)
@@ -98,6 +99,14 @@ class BlockchainCommunity(Community, PeerObserver):
         if self.is_proposer():
             self.register_task("generate_and_broadcast_genesis_block", self.generate_and_broadcast_genesis_block, interval=5.0, delay=7.0)
 
+    def verify_transaction(self, transaction: Transaction) -> bool:
+        key = self.crypto.key_from_public_bin(transaction.public_key)
+
+        return self.crypto.is_valid_signature(
+            key,
+            transaction.to_signable_bytes(),
+            transaction.signature
+        )
 
     def generate_and_broadcast_genesis_block(self):
         genesis_block = Block(
@@ -170,6 +179,11 @@ class BlockchainCommunity(Community, PeerObserver):
         if payload.cert_hash == b"dummy_cert_hash":
             logger.info(f"[{self.node_id}] Dummy transaction received, ignoring")
             return
+
+        if not self.verify_transaction(payload):
+            logger.info(f"[{self.node_id}] Transaction verification failed, ignoring")
+            return
+        logger.info(f"[{self.node_id}] Transaction verified")
         
         message_id = payload.sender_mid.hex() + payload.receiver_mid.hex() + payload.cert_hash.hex()
         if message_id in self.seen_messages_hash:
