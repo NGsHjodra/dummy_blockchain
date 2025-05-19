@@ -52,7 +52,7 @@ class BlockchainCommunity(Community, PeerObserver):
         self.private_key = self.crypto.generate_key("medium")
         self.public_key_bin = self.private_key.pub().key_to_bin()
         self.public_key = self.crypto.key_from_public_bin(self.public_key_bin)
-        self.num_validators = 5
+        # self.num_validators = 5
 
     def on_peer_added(self, peer: Peer) -> None:
         self.known_peers.add(peer)
@@ -148,8 +148,9 @@ class BlockchainCommunity(Community, PeerObserver):
             self.ez_send(peer, payload)
 
     def is_proposer(self) -> bool:
-        block_index = len(self.blockchain.chain)
-        return self.node_id == (block_index % self.num_validators)
+        return self.node_id == 0
+        # block_index = len(self.blockchain.chain)
+        # return self.node_id == (block_index % self.num_validators)
 
     def get_transactions(self):
         return self.transactions
