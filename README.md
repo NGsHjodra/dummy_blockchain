@@ -17,10 +17,9 @@ network  → receives transaction (on_transaction_received)
          → gossips transaction to peers
 
 validator → receives transaction
-          → stores in mempool (pending)
 
 proposer → checks if it’s their turn (round-robin)
-         → collects TXs from mempool
+         → collects TXs 
          → creates block
          → signs and broadcasts block to validator set
 
@@ -32,7 +31,7 @@ proposer → collects votes
          → if threshold met → commits block
          → broadcasts committed block
 
-user     → receives certificate (off-chain or on-chain)
+user     → receives certificate (check view_transaction.py)
 ```
 
 
