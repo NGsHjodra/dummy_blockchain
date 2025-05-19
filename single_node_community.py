@@ -18,11 +18,14 @@ from ipv8.keyvault.crypto import default_eccrypto, ECCrypto
 from server_side.app import Server
 from threading import Thread
 from binascii import unhexlify
+import hashlib
+import json
 
 from models.transaction import Transaction
 from models.blockchain import Blockchain
 from models.vote import Vote
 from models.block import Block
+from models.blockpayload import BlockPayload
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,6 +39,7 @@ class BlockchainCommunity(Community, PeerObserver):
 
         self.add_message_handler(Transaction, self.on_transaction_received)
         self.add_message_handler(Vote, self.on_vote_received)
+        self.add_message_handler(BlockPayload, self.on_block_payload_received)
         self.seen_messages_hash = set()
         self.known_peers = set()
         self.node_id = None
@@ -77,8 +81,33 @@ class BlockchainCommunity(Community, PeerObserver):
         self.broadcast(dummy_vote)
         logger.info(f"[{self.node_id}] Dummy vote sent")
 
+        dummy_block_payload = BlockPayload(
+            index=-1,
+            previous_hash=b"dummy_previous_hash",
+            transaction_hashes=b"dummy_transaction_hash",
+            timestamp=0.0,
+            block_hash=b"dummy_block_hash",
+        )
+        self.broadcast(dummy_block_payload)
+        logger.info(f"[{self.node_id}] Dummy block payload sent")
+
         self.cancel_pending_task("send_dummy_payloads")
         logger.info(f"[{self.node_id}] Dummy transaction task cancelled")
+
+    async def generate_and_broadcast_genesis_block(self):
+        genesis_block = Block(
+            index=0,
+            previous_hash='None',
+            transactions=[],
+            timestamp=0.0
+        )
+        self.blockchain.add_block(genesis_block)
+        logger.info(f"[{self.node_id}] Genesis block created and added to blockchain")
+
+        genesis_block_payload = self.block_to_payload(genesis_block)
+        self.broadcast(genesis_block_payload)
+        logger.info(f"[{self.node_id}] Genesis block payload broadcasted")
+
 
     def broadcast(self, payload: Transaction) -> None:
         for peer in self.get_peers():
@@ -86,6 +115,34 @@ class BlockchainCommunity(Community, PeerObserver):
 
     def is_proposer(self) -> bool:
         return self.node_id == 0
+
+    def get_transactions(self):
+        return self.transactions
+
+    @staticmethod
+    def block_to_payload(block: Block) -> BlockPayload:
+        transaction_hashes = b"|".join([
+            hashlib.sha256(json.dumps(tx.to_dict(), sort_keys=True).encode('utf-8')).digest()
+            for tx in block.transactions
+        ])
+        return BlockPayload(
+            index=block.index,
+            previous_hash=block.previous_hash.encode('utf-8') if isinstance(block.previous_hash, str) else block.previous_hash,
+            transaction_hashes=transaction_hashes,
+            timestamp=block.timestamp,
+            block_hash=bytes.fromhex(block.hash)
+        )
+
+    @staticmethod
+    def payload_to_block(payload: BlockPayload) -> Block:
+        block = Block(
+            index=payload.index,
+            previous_hash=payload.previous_hash.decode('utf-8'),
+            transactions=[],  # Can't fully reconstruct without transaction content
+            timestamp=payload.timestamp
+        )
+        block.hash = payload.block_hash.hex()  # Store as hex again for consistency
+        return block
     
     def create_and_broadcast_transaction(self, sender_mid: bytes, receiver_mid: bytes, cert_hash: bytes,
                                     timestamp: float, signature: bytes, public_key: bytes) -> None:
@@ -171,8 +228,18 @@ class BlockchainCommunity(Community, PeerObserver):
 
             if accept_count > 3:
                 logger.info(f"[{self.node_id}] Majority accepted the block, adding to blockchain")
-                self.blockchain.add_block(self.proposing_block)
-                logger.info(f"[{self.node_id}] Block added to blockchain: {self.proposing_block.index}")
+
+                try:
+                    self.blockchain.add_block(self.proposing_block)
+                    logger.info(f"[{self.node_id}] Block added to blockchain: {self.proposing_block.index}")
+
+                    block_payload = self.block_to_payload(self.proposing_block)
+                    self.broadcast(block_payload)
+                    logger.info(f"[{self.node_id}] Block payload broadcasted")
+
+                except ValueError as e:
+                    logger.error(f"[{self.node_id}] Error adding block to blockchain: {e}")
+
                 self.proposing_block = None  # Reset proposing block after processing
                 self.votes = []  # Reset votes after processing
 
@@ -185,8 +252,38 @@ class BlockchainCommunity(Community, PeerObserver):
         self.broadcast(vote)
         logger.info(f"[{self.node_id}] Vote broadcasted")
 
-    def get_transactions(self):
-        return self.transactions
+    @lazy_wrapper(BlockPayload)
+    def on_block_payload_received(self, peer: Peer, payload: BlockPayload) -> None:
+        if payload.block_hash == b"dummy_block_hash":
+            logger.info(f"[{self.node_id}] Dummy block payload received, ignoring")
+            return
+
+        if self.is_proposer():
+            logger.info(f"[{self.node_id}] Proposer received block payload, ignoring")
+            return
+
+        message_id = payload.block_hash.hex()
+        if message_id in self.seen_messages_hash:
+            return
+
+        self.seen_messages_hash.add(message_id)
+
+        block = self.payload_to_block(payload)
+        if block not in self.blockchain.chain:
+            self.blockchain.add_block(block)
+            logger.info(f"[{self.node_id}] Block added to blockchain: {block.index}")
+
+        block_payload = BlockPayload(
+            index=block.index,
+            previous_hash=block.previous_hash.encode('utf-8') if isinstance(block.previous_hash, str) else block.previous_hash,
+            transaction_hashes=[tx.hash for tx in block.transactions],
+            timestamp=block.timestamp,
+            block_hash=bytes.fromhex(block.hash)  # Convert hex string to bytes
+        )
+
+        self.broadcast(block_payload)
+        logger.info(f"[{self.node_id}] Block payload broadcasted")
+
 
 def start_node(node_id, server_port):
     async def boot():
