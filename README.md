@@ -5,6 +5,7 @@ This system uses a lightweight Proof-of-Authority (PoA) blockchain to issue and 
 ---
 
 ## 🔄 System Flow
+```
 user     → manually sends public key to university
 
 uni      → creates transaction after graduation
@@ -32,7 +33,7 @@ proposer → collects votes
          → broadcasts committed block
 
 user     → receives certificate (off-chain or on-chain)
-
+```
 
 
 # how to run the code
