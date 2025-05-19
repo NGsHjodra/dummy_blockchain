@@ -17,23 +17,31 @@ from ipv8_service import IPv8
 from ipv8.keyvault.crypto import default_eccrypto, ECCrypto
 from server_side.app import Server
 from threading import Thread
+from binascii import unhexlify
 
 from models.transaction import Transaction
 from models.blockchain import Blockchain
+from models.vote import Vote
+from models.block import Block
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class BlockchainCommunity(Community, PeerObserver):
-    community_id = b"myblockchain-test-03"
+    community_id = b"myblockchain-test-02"
 
     def __init__(self, settings: CommunitySettings) -> None:
         super().__init__(settings)
+        self.crypto = ECCrypto()
+
         self.add_message_handler(Transaction, self.on_transaction_received)
+        self.add_message_handler(Vote, self.on_vote_received)
         self.seen_messages_hash = set()
         self.known_peers = set()
         self.node_id = None
         self.transactions = []
+        self.votes = []
+        self.proposing_block = None
         self.blockchain = Blockchain(max_block_size=10)
 
     def on_peer_added(self, peer: Peer) -> None:
@@ -61,6 +69,14 @@ class BlockchainCommunity(Community, PeerObserver):
         self.broadcast(dummy_transaction)
         logger.info(f"[{self.node_id}] Dummy transaction sent")
 
+        dummy_vote = Vote(
+            block_hash=b"dummy_block_hash",
+            voter_mid=self.my_peer.mid,
+            vote_decision=b"dummy_vote_decision",
+        )
+        self.broadcast(dummy_vote)
+        logger.info(f"[{self.node_id}] Dummy vote sent")
+
         self.cancel_pending_task("send_dummy_payloads")
         logger.info(f"[{self.node_id}] Dummy transaction task cancelled")
 
@@ -68,7 +84,7 @@ class BlockchainCommunity(Community, PeerObserver):
         for peer in self.get_peers():
             self.ez_send(peer, payload)
 
-    def is_validator(self) -> bool:
+    def is_proposer(self) -> bool:
         return self.node_id == 0
     
     def create_and_broadcast_transaction(self, sender_mid: bytes, receiver_mid: bytes, cert_hash: bytes,
@@ -84,7 +100,6 @@ class BlockchainCommunity(Community, PeerObserver):
         self.broadcast(transaction)
         logger.info(f"[{self.node_id}] Transaction created and broadcasted")
         
-
     @lazy_wrapper(Transaction)
     def on_transaction_received(self, peer: Peer, payload: Transaction) -> None:
         if payload.cert_hash == b"dummy_cert_hash":
@@ -108,7 +123,7 @@ class BlockchainCommunity(Community, PeerObserver):
         self.broadcast(payload)
         logger.info(f"[{self.node_id}] Transaction broadcasted")
 
-        if self.blockchain.is_block_full() and self.is_validator():
+        if self.blockchain.is_block_full() and self.is_proposer():
             last_block = self.blockchain.get_last_block()
             new_block = self.blockchain.create_block(
                 transactions=self.blockchain.current_transactions,
@@ -116,6 +131,59 @@ class BlockchainCommunity(Community, PeerObserver):
             )
             logger.info(f"[{self.node_id}] New block created: {new_block.index}")
             self.blockchain.current_transactions = []
+
+            # decide to only broadcast the vote
+            vote = Vote(
+                block_hash=unhexlify(new_block.hash),
+                voter_mid=self.my_peer.mid,
+                vote_decision=b"accept",  # or b"reject"
+            )
+
+            self.proposing_block = new_block
+            logger.info(f"[{self.node_id}] Proposing block: {new_block.index}")
+
+            self.broadcast(vote)
+            logger.info(f"[{self.node_id}] Vote broadcasted")
+            self.votes.append(vote)
+            logger.info(f"[{self.node_id}] Vote added to list")
+            self.seen_messages_hash.add(vote.voter_mid.hex() + vote.block_hash.hex())
+
+    @lazy_wrapper(Vote)
+    def on_vote_received(self, peer: Peer, payload: Vote) -> None:
+        if payload.block_hash == b"dummy_block_hash":
+            logger.info(f"[{self.node_id}] Dummy vote received, ignoring")
+            return
+
+        message_id = payload.voter_mid.hex() + payload.block_hash.hex()
+        if message_id in self.seen_messages_hash:
+            return
+
+        self.seen_messages_hash.add(message_id)
+
+        if payload not in self.votes and self.is_proposer():
+            if self.proposing_block is None:
+                logger.info(f"[{self.node_id}] No proposing block, ignoring vote")
+                return
+            self.votes.append(payload)
+            logger.info(f"[{self.node_id}] Vote received current votes: {len(self.votes)}")
+
+            accept_count = sum(1 for vote in self.votes if vote.vote_decision == b"accept")
+
+            if accept_count > 3:
+                logger.info(f"[{self.node_id}] Majority accepted the block, adding to blockchain")
+                self.blockchain.add_block(self.proposing_block)
+                logger.info(f"[{self.node_id}] Block added to blockchain: {self.proposing_block.index}")
+                self.proposing_block = None  # Reset proposing block after processing
+                self.votes = []  # Reset votes after processing
+
+        vote = Vote(
+            block_hash=payload.block_hash,
+            voter_mid=self.my_peer.mid,
+            vote_decision=payload.vote_decision,
+        )
+
+        self.broadcast(vote)
+        logger.info(f"[{self.node_id}] Vote broadcasted")
 
     def get_transactions(self):
         return self.transactions

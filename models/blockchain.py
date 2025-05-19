@@ -25,8 +25,13 @@ class Blockchain:
             transactions=transactions,
             timestamp=time()
         )
-        self.chain.append(block)
         return block
+
+    def add_block(self, block):
+        """Add a block to the chain."""
+        if block.previous_hash != (self.chain[-1].hash if self.chain else None):
+            raise ValueError("Invalid previous hash")
+        self.chain.append(block)
 
     def add_transaction(self, transaction):
         self.current_transactions.append(transaction)
