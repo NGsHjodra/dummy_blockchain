@@ -4,38 +4,38 @@ This system uses a lightweight Proof-of-Authority (PoA) blockchain to issue and 
 
 ---
 
-## 🔄 System Flow
+## System Flow
 ```
-user     → manually sends public key to university
+user     → manually sends public key to the university
 
-uni      → creates transaction after graduation
-         → signs transaction with its private key
-         → sends transaction to the network
+uni      → creates transactions after graduation
+         → Signs transactions with its private key
+         → sends transactions to the network
 
 network  → receives transaction (on_transaction_received)
          → verifies signature
-         → gossips transaction to peers
+         → gossip transaction to peers
 
 validator → receives transaction
 
 proposer → checks if it’s their turn (round-robin)
          → collects TXs 
-         → creates block
-         → signs and broadcasts block to validator set
+         → creates a block
+         → signs and broadcasts a block to the validator set
 
 validator → receives block
           → verifies block + TXs
-          → signs vote and sends to proposer
+          → signs the vote and sends it to the proposer
 
 proposer → collects votes
          → if threshold met → commits block
-         → broadcasts committed block
+         → broadcasts a committed block
 
 user     → receives certificate (check view_transaction.py)
 ```
 
 
-# how to run the code
+# How to run the code
 
 ## 1. Install the required packages
 ```
