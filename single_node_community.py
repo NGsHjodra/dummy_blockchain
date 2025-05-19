@@ -229,6 +229,15 @@ class BlockchainCommunity(Community, PeerObserver):
             if self.proposing_block is None:
                 logger.info(f"[{self.node_id}] No proposing block, ignoring vote")
                 return
+
+            if payload.block_hash != unhexlify(self.proposing_block.hash):
+                logger.info(f"[{self.node_id}] Vote block hash does not match proposing block, ignoring")
+                return
+
+            if payload.voter_mid in [vote.voter_mid for vote in self.votes]:
+                logger.info(f"[{self.node_id}] Vote already received from this voter, ignoring")
+                return
+
             self.votes.append(payload)
             logger.info(f"[{self.node_id}] Vote received current votes: {len(self.votes)}")
 
@@ -280,17 +289,6 @@ class BlockchainCommunity(Community, PeerObserver):
         if block not in self.blockchain.chain:
             self.blockchain.add_block(block)
             logger.info(f"[{self.node_id}] Block added to blockchain: {block.index}")
-
-        # block_payload = BlockPayload(
-        #     index=block.index,
-        #     previous_hash=block.previous_hash.encode('utf-8') if isinstance(block.previous_hash, str) else block.previous_hash,
-        #     transaction_hashes=[tx.hash for tx in block.transactions],
-        #     timestamp=block.timestamp,
-        #     block_hash=bytes.fromhex(block.hash)  # Convert hex string to bytes
-        # )
-
-        # self.broadcast(block_payload)
-        # logger.info(f"[{self.node_id}] Block payload broadcasted")
 
 
 def start_node(node_id, server_port):
