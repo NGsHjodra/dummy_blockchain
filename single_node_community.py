@@ -52,6 +52,7 @@ class BlockchainCommunity(Community, PeerObserver):
         self.private_key = self.crypto.generate_key("medium")
         self.public_key_bin = self.private_key.pub().key_to_bin()
         self.public_key = self.crypto.key_from_public_bin(self.public_key_bin)
+        self.num_validators = 5
 
     def on_peer_added(self, peer: Peer) -> None:
         self.known_peers.add(peer)
@@ -129,7 +130,7 @@ class BlockchainCommunity(Community, PeerObserver):
             index=0,
             previous_hash='None',
             transactions=[],
-            timestamp=0.0
+            timestamp=time()
         )
         self.blockchain.add_block(genesis_block)
         logger.info(f"[{self.node_id}] Genesis block created and added to blockchain")
@@ -147,7 +148,8 @@ class BlockchainCommunity(Community, PeerObserver):
             self.ez_send(peer, payload)
 
     def is_proposer(self) -> bool:
-        return self.node_id == 0
+        block_index = len(self.blockchain.chain)
+        return self.node_id == (block_index % self.num_validators)
 
     def get_transactions(self):
         return self.transactions
@@ -261,6 +263,10 @@ class BlockchainCommunity(Community, PeerObserver):
             logger.info(f"[{self.node_id}] Vote verification failed, ignoring")
             return
         logger.info(f"[{self.node_id}] Vote verified")
+
+        if payload.vote_decision not in [b"accept", b"reject"]:
+            logger.info(f"[{self.node_id}] Invalid vote decision, ignoring")
+            return
 
         message_id = payload.voter_mid.hex() + payload.block_hash.hex()
         if message_id in self.seen_messages_hash:
